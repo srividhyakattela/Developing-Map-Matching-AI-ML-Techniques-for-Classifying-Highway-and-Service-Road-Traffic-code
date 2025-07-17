@@ -1,0 +1,224 @@
+pip install pandas numpy scikit-learn osmnx folium geopandas matplotlib
+import pandas as pd
+
+# Load the dataset
+df = pd.read_csv("/content/Next_Generation_Simulation__NGSIM__Vehicle_Trajectories_and_Supporting_Data.csv")
+
+# Print column names
+print("Columns in dataset:", df.columns)
+df['Global_Time'] = pd.to_datetime(df['Global_Time'], errors='coerce')
+df['Global_Time'] = pd.to_datetime(df['Global_Time'], unit='ms')
+import pandas as pd
+import numpy as np
+import scipy.signal as signal
+
+# Load NGSIM dataset (Update with your file path)
+df = pd.read_csv("/content/Next_Generation_Simulation__NGSIM__Vehicle_Trajectories_and_Supporting_Data.csv")
+
+# Convert 'Global_Time' to datetime format (handling UNIX timestamps if needed)
+df['Global_Time'] = pd.to_datetime(df['Global_Time'], unit='ms', errors='coerce')
+
+# Remove missing values
+df.dropna(inplace=True)
+
+# Ensure the correct column names are used
+if 'v_Acc' in df.columns:
+    df = df[df['v_Acc'].abs() < 30]  # Remove extreme acceleration values
+else:
+    raise KeyError("Column 'v_Acc' not found in dataset!")
+
+# Apply a low-pass Butterworth filter to smooth acceleration data
+def butter_lowpass_filter(data, cutoff=0.75, fs=10, order=1):
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+    b, a = signal.butter(order, normal_cutoff, btype='low', analog=False)
+
+    # Check for NaN values before filtering
+    data = data.dropna()
+
+    return signal.filtfilt(b, a, data) if len(data) > 3 else data
+
+# Apply filter on acceleration data
+df['smoothed_acceleration'] = butter_lowpass_filter(df['v_Acc'])
+
+# Select relevant columns
+df = df[['Global_Time', 'Vehicle_ID', 'Frame_ID', 'Lane_ID', 'v_Vel', 'smoothed_acceleration']]
+
+# Display cleaned data
+print(df.head())
+
+# Feature Engineering
+df['speed_diff'] = df['v_Vel'].diff()  # Change in speed
+df['acceleration_diff'] = df['smoothed_acceleration'].diff()  # Change in acceleration
+df['lane_change'] = (df['Lane_ID'].diff().abs() > 0).astype(int)  # Detect lane changes (1 = lane changed, 0 = no change)
+
+# Labeling (Example: Speed threshold for highways)
+df['road_type'] = df['v_Vel'].apply(lambda x: 'highway' if x > 60 else 'service_road')
+
+# Convert categorical labels to numeric
+df['road_type'] = df['road_type'].map({'highway': 1, 'service_road': 0})
+
+# Display processed features
+print(df[['v_Vel', 'smoothed_acceleration', 'lane_change', 'road_type']].head())
+
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+# Select relevant features (Ensure correct column names)
+features = ['v_Vel', 'smoothed_acceleration', 'speed_diff', 'acceleration_diff', 'lane_change']
+X = df[features]
+y = df['road_type']
+
+# Handle missing values (if any) by filling with the median
+X.fillna(X.median(), inplace=True)
+
+# Split dataset into training and testing sets (80% train, 20% test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# Train Random Forest Classifier
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Make predictions
+y_pred = model.predict(X_test)
+
+# Evaluate Model
+print("Model Accuracy:", accuracy_score(y_test, y_pred))
+print("Classification Report:\n", classification_report(y_test, y_pred))
+
+import osmnx as ox
+import geopandas as gpd
+import folium
+
+# Define area of interest
+place_name = "Los Angeles, USA"
+
+# Get road network from OpenStreetMap (OSM)
+graph = ox.graph_from_place(place_name, network_type="drive")
+gdf = ox.graph_to_gdfs(graph, nodes=False)
+
+# Ensure 'highway' column exists before filtering
+if 'highway' in gdf.columns:
+    # Extract highways and service roads
+    highways = gdf[gdf['highway'].isin(['motorway', 'trunk'])].copy()
+    service_roads = gdf[gdf['highway'].isin(['service', 'residential'])].copy()
+else:
+    raise KeyError("Column 'highway' not found in OSM data!")
+
+# Convert to interactive Folium map
+m = folium.Map(location=[34.0522, -118.2437], zoom_start=12)
+
+# Add highways (blue)
+for _, row in highways.iterrows():
+    if isinstance(row['geometry'], list):  # Ensure valid geometry
+        continue
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in row['geometry'].coords],
+        color='blue',
+        weight=3,
+        tooltip="Highway"
+    ).add_to(m)
+
+# Add service roads (red)
+for _, row in service_roads.iterrows():
+    if isinstance(row['geometry'], list):  # Ensure valid geometry
+        continue
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in row['geometry'].coords],
+        color='red',
+        weight=2,
+        tooltip="Service Road"
+    ).add_to(m)
+
+# Show interactive map
+m.save("road_map.html")
+print("Map saved as 'road_map.html'. Open in a browser to view.")
+..............
+import pandas as pd
+import numpy as np
+import scipy.signal as signal
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import accuracy_score, classification_report
+
+# 📌 Step 1: Load and Preprocess NGSIM Data
+df = pd.read_csv("/content/Next_Generation_Simulation__NGSIM__Vehicle_Trajectories_and_Supporting_Data.csv")
+
+# Convert 'Global_Time' to datetime format
+df['Global_Time'] = pd.to_datetime(df['Global_Time'], unit='ms', errors='coerce')
+
+# Remove missing values
+df.dropna(inplace=True)
+
+# Ensure correct column names
+if 'v_Acc' in df.columns:
+    df = df[df['v_Acc'].abs() < 30]  # Remove extreme acceleration values
+else:
+    raise KeyError("Column 'v_Acc' not found in dataset!")
+
+# Apply a low-pass Butterworth filter to smooth acceleration data
+def butter_lowpass_filter(data, cutoff=0.75, fs=10, order=1):
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+    b, a = signal.butter(order, normal_cutoff, btype='low', analog=False)
+
+    # Check for NaN values before filtering
+    data = data.dropna()
+
+    return signal.filtfilt(b, a, data) if len(data) > 3 else data
+
+# Apply filter on acceleration data
+df['smoothed_acceleration'] = butter_lowpass_filter(df['v_Acc'])
+
+# 📌 Step 2: Feature Engineering
+df['speed_diff'] = df['v_Vel'].diff()  # Change in speed
+df['acceleration_diff'] = df['smoothed_acceleration'].diff()  # Change in acceleration
+df['lane_change'] = (df['Lane_ID'].diff().abs() > 0).astype(int)  # Detect lane changes (1 = lane changed, 0 = no change)
+
+# Labeling (Highway = 1, Service Road = 0)
+df['road_type'] = df['v_Vel'].apply(lambda x: 1 if x > 60 else 0)  # 1 = highway, 0 = service road
+
+# Drop NaN values generated from diff()
+df.dropna(inplace=True)
+
+# 📌 Step 3: Prepare Data for LSTM (Reshape for Sequential Model)
+features = ['v_Vel', 'smoothed_acceleration', 'speed_diff', 'acceleration_diff', 'lane_change']
+X = df[features]
+y = df['road_type']
+
+# Normalize features using Min-Max scaling
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Reshape X to fit LSTM input (samples, timesteps, features)
+X_reshaped = X_scaled.reshape(X_scaled.shape[0], 1, X_scaled.shape[1])  # (samples, timesteps, features)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X_reshaped, y, test_size=0.2, random_state=42, stratify=y)
+
+# 📌 Step 4: Define LSTM Model
+model = Sequential([
+    LSTM(50, return_sequences=True, input_shape=(1, X_scaled.shape[1])),
+    Dropout(0.2),
+    LSTM(50, return_sequences=False),
+    Dropout(0.2),
+    Dense(1, activation='sigmoid')  # Binary classification output
+])
+
+# Compile the model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# 📌 Step 5: Train the LSTM Model
+history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+
+# 📌 Step 6: Evaluate Model Accuracy
+y_pred_prob = model.predict(X_test)
+y_pred = (y_pred_prob > 0.5).astype(int)  # Convert probabilities to binary labels
+
+print("\nModel Accuracy:", accuracy_score(y_test, y_pred))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
